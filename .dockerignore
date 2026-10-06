@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+data/votos.sqlite
+data/votos.sqlite-wal
+data/votos.sqlite-shm
+.git/
+.gitignore
+*.log
+.ipynb_checkpoints/

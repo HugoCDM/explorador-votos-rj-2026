@@ -1,0 +1,3 @@
+# Grandes arquivos sao distribuidos via GitHub Release (asset), nao via git LFS.
+*.sqlite
+*.db

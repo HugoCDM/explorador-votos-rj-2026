@@ -13,6 +13,7 @@ const state = {
   drawerView: null,
   mapRows: [],
   radiusMeters: 1000,
+  refreshId: 0,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -59,7 +60,7 @@ function setupCombo(name) {
   input.addEventListener("input", () => {
     openCombo(combo, input.value);
   });
-  input.addEventListener("focus", () => openCombo(combo, input.value));
+  input.addEventListener("focus", () => openCombo(combo, ""));
   input.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -74,6 +75,7 @@ function setupCombo(name) {
       syncComboText(combo);
     }
   });
+  input.addEventListener("click", () => openCombo(combo, ""));
   input.addEventListener("blur", () => {
     setTimeout(() => {
       closeCombo(combo);
@@ -579,20 +581,27 @@ async function loadOptions() {
 async function refreshAll() {
   const params = paramsFromFilters();
   const group = $("#group").value;
+  const refreshId = ++state.refreshId;
   $("#ranking").innerHTML = '<div class="empty">Carregando ranking...</div>';
+  $("#mapStatus").textContent = "Carregando...";
 
   try {
-    const [overview, ranking, rows, map] = await Promise.all([
+    const mapPromise = api("/api/map", { ...params, limit: 6000 });
+    const [overview, ranking, rows] = await Promise.all([
       api("/api/overview", params),
       api("/api/summary", { ...params, group, limit: 25 }),
       api("/api/rows", { ...params, page: state.page, page_size: state.pageSize }),
-      api("/api/map", { ...params, limit: 6000 }),
     ]);
+    if (refreshId !== state.refreshId) return;
     renderCards(overview.totals);
     renderRanking(ranking);
     renderRows(rows);
+
+    const map = await mapPromise;
+    if (refreshId !== state.refreshId) return;
     renderMap(map);
   } catch (error) {
+    if (refreshId !== state.refreshId) return;
     $("#ranking").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
     $("#cards").innerHTML = "";
     $("#rows").innerHTML = "";

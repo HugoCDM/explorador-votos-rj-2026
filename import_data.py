@@ -199,12 +199,25 @@ def create_aggregates(connection: sqlite3.Connection) -> None:
             FROM votos
             GROUP BY cargo, municipio, bairro, local_votacao, local_nome, zona, secao;
 
+        DROP TABLE IF EXISTS agg_secoes_candidatos;
+        CREATE TABLE agg_secoes_candidatos AS
+            SELECT cargo, codigo_votavel, tipo_voto,
+                municipio, bairro, local_votacao, local_nome, zona, secao,
+                SUM(quantidade_votos) AS votos, COUNT(*) AS linhas
+            FROM votos
+            WHERE cargo IN ('Governador', 'Presidente')
+            GROUP BY cargo, codigo_votavel, tipo_voto,
+                municipio, bairro, local_votacao, local_nome, zona, secao;
+
         CREATE INDEX IF NOT EXISTS idx_agg_bairros_municipio ON agg_bairros(municipio, bairro);
         CREATE INDEX IF NOT EXISTS idx_agg_candidatos_cargo ON agg_candidatos(cargo, votos DESC);
         CREATE INDEX IF NOT EXISTS idx_agg_locais_filtros ON agg_locais(cargo, municipio, bairro, codigo_votavel, tipo_voto);
         CREATE INDEX IF NOT EXISTS idx_agg_locais_geo ON agg_locais(latitude, longitude);
         CREATE INDEX IF NOT EXISTS idx_agg_locais_votos ON agg_locais(votos DESC);
         CREATE INDEX IF NOT EXISTS idx_agg_secoes_filtros ON agg_secoes(cargo, municipio, bairro, local_nome);
+        CREATE INDEX IF NOT EXISTS idx_agg_secoes_votos ON agg_secoes(cargo, votos DESC);
+        CREATE INDEX IF NOT EXISTS idx_agg_secoes_candidatos_filtros ON agg_secoes_candidatos(cargo, codigo_votavel, tipo_voto, municipio, bairro, local_nome);
+        CREATE INDEX IF NOT EXISTS idx_agg_secoes_candidatos_votos ON agg_secoes_candidatos(cargo, codigo_votavel, votos DESC);
         """
     )
 

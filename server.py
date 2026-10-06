@@ -185,16 +185,50 @@ def build_section_where(params: dict[str, list[str]]) -> tuple[str, list[object]
         clauses = ["cargo = ?"]
         values = [cargo]
     for param, column in {
-        "cargo": "cargo",
         "municipio": "municipio",
         "bairro": "bairro",
         "local": "local_nome",
+        "zona": "zona",
+        "secao": "secao",
     }.items():
         value = first(params, param)
         if value:
             clauses.append(f"{column} = ?")
             values.append(value)
     return (" WHERE " + " AND ".join(clauses), values) if clauses else ("", values)
+
+
+def can_use_section_aggregate(params: dict[str, list[str]], connection: sqlite3.Connection) -> bool:
+    has_candidate_filter = first(params, "candidato") or first(params, "tipo")
+    if has_candidate_filter:
+        if first(params, "q"):
+            return False
+        return table_exists(connection, "agg_secoes_candidatos")
+    return table_exists(connection, "agg_secoes")
+
+
+def build_section_candidate_where(params: dict[str, list[str]]) -> tuple[str, list[object]]:
+    where, values = build_section_where(params)
+    filters = {
+        "candidato": "codigo_votavel",
+        "tipo": "tipo_voto",
+    }
+    for param, column in filters.items():
+        value = first(params, param)
+        if value:
+            where += f" AND {column} = ?"
+            values.append(value)
+    return where, values
+
+
+def append_section_search(where: str, values: list[object], query: str) -> tuple[str, list[object]]:
+    if not query:
+        return where, values
+    like = f"%{query}%"
+    return (
+        where + " AND (municipio LIKE ? OR bairro LIKE ? OR local_nome LIKE ? OR local_votacao LIKE ?)",
+        [*values, like, like, like, like],
+    )
 
 
 def table_exists(connection: sqlite3.Connection, table: str) -> bool:
@@ -381,10 +415,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 )
                 if not (first(params, "candidato") or first(params, "tipo")) and table_exists(connection, "agg_secoes"):
                     if first(params, "q"):
-                        votos_where, votos_values = build_where(params, "votos", fts_available=table_exists(connection, "fts_votos"))
+                        section_where, section_values = build_section_where(params)
+                        section_where, section_values = append_section_search(section_where, section_values, first(params, "q"))
                         totals["secoes"] = connection.execute(
-                            f"SELECT COUNT(DISTINCT zona || '|' || secao || '|' || local_votacao) FROM votos{votos_where}",
-                            votos_values,
+                            f"""
+                            SELECT COUNT(*)
+                            FROM agg_secoes{section_where}
+                            """,
+                            section_values,
                         ).fetchone()[0]
                     else:
                         section_where, section_values = build_section_where(params)
@@ -457,12 +495,33 @@ class AppHandler(BaseHTTPRequestHandler):
             raise ApiError("Agrupamento inválido", HTTPStatus.BAD_REQUEST)
 
         with POOL.acquire() as connection:
-            use_aggregate = group != "secao" and can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
             select_columns, group_columns = groups[group]
-            table = "agg_locais" if use_aggregate else "votos"
+            use_section_aggregate = group == "secao" and can_use_section_aggregate(params, connection)
+            use_location_aggregate = group != "secao" and can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
+            table = "agg_secoes" if use_section_aggregate else "agg_locais" if use_location_aggregate else "votos"
+            use_aggregate = use_section_aggregate or use_location_aggregate
             vote_column = "votos" if use_aggregate else "quantidade_votos"
             count_expression = "SUM(linhas)" if use_aggregate else "COUNT(*)"
-            where, values = build_where(params, table, fts_available=table_exists(connection, FTS_TABLES[table]))
+            if use_section_aggregate:
+                table = "agg_secoes_candidatos" if first(params, "candidato") or first(params, "tipo") else "agg_secoes"
+                where, values = build_section_candidate_where(params) if table == "agg_secoes_candidatos" else build_section_where(params)
+                if table == "agg_secoes":
+                    where, values = append_section_search(where, values, first(params, "q"))
+                rows = [
+                    row_to_dict(row)
+                    for row in connection.execute(
+                        f"""
+                        SELECT municipio, bairro, local_nome, zona, secao, votos, linhas
+                        FROM {table}{where}
+                        ORDER BY votos DESC
+                        LIMIT ?
+                        """,
+                        [*values, limit],
+                    )
+                ]
+                return {"group": group, "rows": rows}
+            else:
+                where, values = build_where(params, table, fts_available=table_exists(connection, FTS_TABLES[table]))
             rows = [
                 row_to_dict(row)
                 for row in connection.execute(

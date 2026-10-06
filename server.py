@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import gzip
 import json
 import mimetypes
@@ -70,6 +71,48 @@ class ConnectionPool:
 
 
 POOL: ConnectionPool | None = None
+
+
+class ResponseCache:
+    def __init__(self, max_entries: int = 2048, max_bytes: int = 64 * 1024 * 1024) -> None:
+        self.max_entries = max_entries
+        self.max_bytes = max_bytes
+        self._data: "collections.OrderedDict[tuple, tuple[bytes, bytes | None]]" = collections.OrderedDict()
+        self._bytes = 0
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple) -> tuple[bytes, bytes | None] | None:
+        with self._lock:
+            value = self._data.get(key)
+            if value is not None:
+                self._data.move_to_end(key)
+            return value
+
+    def put(self, key: tuple, raw: bytes, gzip_data: bytes | None) -> None:
+        size = len(raw) + (len(gzip_data) if gzip_data else 0)
+        with self._lock:
+            previous = self._data.pop(key, None)
+            if previous is not None:
+                self._bytes -= len(previous[0]) + (len(previous[1]) if previous[1] else 0)
+            self._data[key] = (raw, gzip_data)
+            self._bytes += size
+            while (len(self._data) > self.max_entries or self._bytes > self.max_bytes) and self._data:
+                _, evicted = self._data.popitem(last=False)
+                self._bytes -= len(evicted[0]) + (len(evicted[1]) if evicted[1] else 0)
+
+    def keys(self) -> list[tuple]:
+        with self._lock:
+            return list(self._data.keys())
+
+
+CACHE = ResponseCache()
+
+
+class ApiError(Exception):
+    def __init__(self, message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
 
 
 ALLOWED_CARGOS = ("Governador", "Presidente")
@@ -165,6 +208,7 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, object]:
 
 class AppHandler(BaseHTTPRequestHandler):
     db_path: Path = DEFAULT_DB
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -179,16 +223,41 @@ class AppHandler(BaseHTTPRequestHandler):
     def _accepts_gzip(self) -> bool:
         return "gzip" in self.headers.get("Accept-Encoding", "")
 
-    def send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    def _cache_key(self) -> tuple | None:
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/") or parsed.path == "/api/health":
+            return None
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        return cache_key_for(parsed.path, params)
+
+    def _write_bytes(self, body: bytes, status: HTTPStatus, encoding: str | None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        if self._accepts_gzip() and len(data) > 1024:
-            data = gzip.compress(data)
-            self.send_header("Content-Encoding", "gzip")
-        self.send_header("Content-Length", str(len(data)))
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(body)
+
+    def send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
+        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        gz = gzip.compress(raw) if len(raw) > 1024 else None
+        if gz is not None and len(gz) >= len(raw):
+            gz = None
+        if self._accepts_gzip() and gz is not None:
+            return self._write_bytes(gz, status, "gzip")
+        return self._write_bytes(raw, status, None)
+
+    def send_payload(self, payload: object, key: tuple | None) -> None:
+        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        gz = gzip.compress(raw)
+        if len(gz) >= len(raw):
+            gz = None
+        if key is not None:
+            CACHE.put(key, raw, gz)
+        if self._accepts_gzip() and gz is not None:
+            return self._write_bytes(gz, HTTPStatus.OK, "gzip")
+        return self._write_bytes(raw, HTTPStatus.OK, None)
 
     def send_error_json(self, message: str, status: HTTPStatus) -> None:
         self.send_json({"error": message}, status)
@@ -209,25 +278,43 @@ class AppHandler(BaseHTTPRequestHandler):
         if not self.require_db():
             return
 
+        key = self._cache_key()
+        if key is not None:
+            cached = CACHE.get(key)
+            if cached is not None:
+                raw, gz = cached
+                if gz is not None and self._accepts_gzip():
+                    return self._write_bytes(gz, HTTPStatus.OK, "gzip")
+                return self._write_bytes(raw, HTTPStatus.OK, None)
+
         try:
+            payload: object | None
             if path == "/api/options":
-                self.api_options(params)
+                payload = self.api_options(params)
             elif path == "/api/overview":
-                self.api_overview(params)
+                payload = self.api_overview(params)
             elif path == "/api/summary":
-                self.api_summary(params)
+                payload = self.api_summary(params)
             elif path == "/api/rows":
-                self.api_rows(params)
+                payload = self.api_rows(params)
             elif path == "/api/map":
-                self.api_map(params)
+                payload = self.api_map(params)
             elif path == "/api/location":
-                self.api_location(params)
+                payload = self.api_location(params)
             else:
                 self.send_error_json("Endpoint nao encontrado", HTTPStatus.NOT_FOUND)
+                return
+        except ApiError as exc:
+            self.send_error_json(exc.message, exc.status)
+            return
         except sqlite3.Error as exc:
             self.send_error_json(f"Erro SQLite: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
 
-    def api_options(self, params: dict[str, list[str]]) -> None:
+        self.send_payload(payload, key)
+
+    @staticmethod
+    def api_options(params: dict[str, list[str]]) -> dict[str, object]:
         cargo = first(params, "cargo")
         municipio = first(params, "municipio")
         with POOL.acquire() as connection:
@@ -269,9 +356,10 @@ class AppHandler(BaseHTTPRequestHandler):
 
             tipos = [row[0] for row in connection.execute("SELECT tipo_voto FROM agg_tipos ORDER BY tipo_voto")]
 
-        self.send_json({"cargos": cargos, "municipios": municipios, "bairros": bairros, "candidatos": candidatos, "tipos": tipos})
+        return {"cargos": cargos, "municipios": municipios, "bairros": bairros, "candidatos": candidatos, "tipos": tipos}
 
-    def api_overview(self, params: dict[str, list[str]]) -> None:
+    @staticmethod
+    def api_overview(params: dict[str, list[str]]) -> dict[str, object]:
         with POOL.acquire() as connection:
             use_aggregate = can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
             table = "agg_locais" if use_aggregate else "votos"
@@ -344,9 +432,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         values,
                     )
                 ]
-        self.send_json({"totals": totals, "leaders": leaders})
+        return {"totals": totals, "leaders": leaders}
 
-    def api_summary(self, params: dict[str, list[str]]) -> None:
+    @staticmethod
+    def api_summary(params: dict[str, list[str]]) -> dict[str, object]:
         group = first(params, "group", "candidato")
         limit = clamp_int(first(params, "limit", "25"), 25, 1, 200)
 
@@ -365,8 +454,7 @@ class AppHandler(BaseHTTPRequestHandler):
             "tipo": ("tipo_voto", "tipo_voto"),
         }
         if group not in groups:
-            self.send_error_json("Agrupamento invalido", HTTPStatus.BAD_REQUEST)
-            return
+            raise ApiError("Agrupamento invalido", HTTPStatus.BAD_REQUEST)
 
         with POOL.acquire() as connection:
             use_aggregate = group != "secao" and can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
@@ -388,9 +476,10 @@ class AppHandler(BaseHTTPRequestHandler):
                     [*values, limit],
                 )
             ]
-        self.send_json({"group": group, "rows": rows})
+        return {"group": group, "rows": rows}
 
-    def api_rows(self, params: dict[str, list[str]]) -> None:
+    @staticmethod
+    def api_rows(params: dict[str, list[str]]) -> dict[str, object]:
         page = clamp_int(first(params, "page", "1"), 1, 1, 100000)
         page_size = clamp_int(first(params, "page_size", "50"), 50, 10, 200)
         offset = (page - 1) * page_size
@@ -416,9 +505,10 @@ class AppHandler(BaseHTTPRequestHandler):
                     [*values, page_size, offset],
                 )
             ]
-        self.send_json({"page": page, "page_size": page_size, "total": total, "rows": rows})
+        return {"page": page, "page_size": page_size, "total": total, "rows": rows}
 
-    def api_map(self, params: dict[str, list[str]]) -> None:
+    @staticmethod
+    def api_map(params: dict[str, list[str]]) -> dict[str, object]:
         limit = clamp_int(first(params, "limit", "600"), 600, 10, 10000)
         has_section_filter = bool(first(params, "zona") or first(params, "secao"))
         table = "votos"
@@ -452,9 +542,10 @@ class AppHandler(BaseHTTPRequestHandler):
                     [*values, limit],
                 )
             ]
-        self.send_json({"rows": rows})
+        return {"rows": rows}
 
-    def api_location(self, params: dict[str, list[str]]) -> None:
+    @staticmethod
+    def api_location(params: dict[str, list[str]]) -> dict[str, object]:
         cargo = first(params, "cargo", "Governador") or "Governador"
         supported = first(params, "supported", "55") or "55"
         municipio = first(params, "municipio")
@@ -462,8 +553,7 @@ class AppHandler(BaseHTTPRequestHandler):
         local_nome = first(params, "local_nome")
 
         if not municipio or not local_votacao:
-            self.send_error_json("Informe municipio e local_votacao", HTTPStatus.BAD_REQUEST)
-            return
+            raise ApiError("Informe municipio e local_votacao", HTTPStatus.BAD_REQUEST)
 
         clauses = ["cargo = ?", "municipio = ?", "local_votacao = ?"]
         values: list[object] = [cargo, municipio, local_votacao]
@@ -541,38 +631,36 @@ class AppHandler(BaseHTTPRequestHandler):
             )
         conversations.sort(key=lambda item: item["votes"], reverse=True)
 
-        self.send_json(
-            {
-                "info": info,
-                "supported": {
-                    "numero": supported,
-                    "nome": supported_row["nome"] if supported_row else "Eduardo Paes",
-                    "partido": supported_row["partido"] if supported_row else "PSD",
-                    "votos": supported_votes,
-                    "share": supported_share,
-                },
-                "main_opponent": {
-                    "numero": main_opponent["numero"],
-                    "nome": main_opponent["nome"],
-                    "partido": main_opponent["partido"],
-                    "votos": main_opponent_votes,
-                    "share": opponent_share,
-                }
-                if main_opponent
-                else None,
-                "totals": {
-                    "votos": total,
-                    "secoes": (info or {}).get("secoes", 0),
-                    "brancos": blanks,
-                    "nulos": nulls,
-                    "outros_candidatos": other_candidates,
-                    "conversaveis": opportunity_votes,
-                    "margem": supported_votes - main_opponent_votes,
-                },
-                "candidates": rows,
-                "conversations": conversations,
+        return {
+            "info": info,
+            "supported": {
+                "numero": supported,
+                "nome": supported_row["nome"] if supported_row else "Eduardo Paes",
+                "partido": supported_row["partido"] if supported_row else "PSD",
+                "votos": supported_votes,
+                "share": supported_share,
+            },
+            "main_opponent": {
+                "numero": main_opponent["numero"],
+                "nome": main_opponent["nome"],
+                "partido": main_opponent["partido"],
+                "votos": main_opponent_votes,
+                "share": opponent_share,
             }
-        )
+            if main_opponent
+            else None,
+            "totals": {
+                "votos": total,
+                "secoes": (info or {}).get("secoes", 0),
+                "brancos": blanks,
+                "nulos": nulls,
+                "outros_candidatos": other_candidates,
+                "conversaveis": opportunity_votes,
+                "margem": supported_votes - main_opponent_votes,
+            },
+            "candidates": rows,
+            "conversations": conversations,
+        }
 
     def serve_static(self, path: str) -> None:
         clean_path = unquote(path).lstrip("/") or "index.html"
@@ -588,11 +676,59 @@ class AppHandler(BaseHTTPRequestHandler):
 
         content = file_path.read_bytes()
         content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        encoding = None
+        if content_type.startswith("text/") or content_type in ("application/javascript", "application/json"):
+            gz = gzip.compress(content)
+            if len(gz) < len(content) and self._accepts_gzip():
+                content = gz
+                encoding = "gzip"
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Cache-Control", "public, max-age=3600")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
+
+
+def cache_key_for(path: str, params: dict[str, list[str]]) -> tuple:
+    canonical = tuple(sorted((key, tuple(values)) for key, values in params.items()))
+    return (path, canonical)
+
+
+WARMUP_TASKS: list[tuple[str, dict[str, list[str]]]] = [
+    ("/api/options", {}),
+    ("/api/options", {"cargo": ["Governador"]}),
+    ("/api/overview", {"cargo": ["Governador"]}),
+    ("/api/summary", {"cargo": ["Governador"], "group": ["candidato"], "limit": ["25"]}),
+    ("/api/rows", {"cargo": ["Governador"], "page": ["1"], "page_size": ["50"]}),
+    ("/api/map", {"cargo": ["Governador"], "limit": ["6000"]}),
+]
+
+
+def warm_up() -> None:
+    handlers = {
+        "/api/options": AppHandler.api_options,
+        "/api/overview": AppHandler.api_overview,
+        "/api/summary": AppHandler.api_summary,
+        "/api/rows": AppHandler.api_rows,
+        "/api/map": AppHandler.api_map,
+        "/api/location": AppHandler.api_location,
+    }
+    warmed = 0
+    for path, params in WARMUP_TASKS:
+        try:
+            payload = handlers[path](params)
+            raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            gz = gzip.compress(raw)
+            if len(gz) >= len(raw):
+                gz = None
+            CACHE.put(cache_key_for(path, params), raw, gz)
+            warmed += 1
+        except Exception as exc:
+            print(f"warm-up falhou em {path}: {exc!r}", flush=True)
+    print(f"Warm-up concluido: {warmed}/{len(WARMUP_TASKS)} respostas em cache", flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -611,6 +747,7 @@ def main() -> None:
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     print(f"Servidor iniciado em http://{args.host}:{args.port}")
     print("Use Ctrl+C para encerrar.")
+    threading.Thread(target=warm_up, daemon=True).start()
     server.serve_forever()
 
 

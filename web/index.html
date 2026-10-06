@@ -6,46 +6,66 @@
     <title>Explorador de Votos RJ 2026</title>
     <link rel="preconnect" href="https://unpkg.com" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=3" />
   </head>
   <body>
     <header class="hero">
       <nav class="topbar">
         <strong>PAES 55</strong>
-        <span>governador por territorio</span>
+        <span>governador por território</span>
       </nav>
       <section class="hero-grid">
         <div>
           <p class="eyebrow">Primeiro turno · Governador</p>
           <h1>Onde dá pra virar voto para Paes 55</h1>
           <p class="lead">
-            Clique em cada local de votacao para ver o desempenho do Eduardo Paes, o principal adversario e os grupos com maior potencial de conversa.
+            Clique em cada local de votação para ver o desempenho do Eduardo Paes, o principal adversário e os grupos com maior potencial de conversa.
           </p>
         </div>
         <form id="filters" class="panel filters">
           <label>
             Cargo
-            <select name="cargo" id="cargo"></select>
+            <div class="combo" data-combo="cargo">
+              <input type="text" class="combo-input" autocomplete="off" placeholder="Todos os cargos" />
+              <input type="hidden" name="cargo" id="cargo" />
+              <div class="combo-list" hidden></div>
+            </div>
           </label>
           <label>
-            Municipio
-            <select name="municipio" id="municipio"></select>
+            Município
+            <div class="combo" data-combo="municipio">
+              <input type="text" class="combo-input" autocomplete="off" placeholder="Todos os municípios" />
+              <input type="hidden" name="municipio" id="municipio" />
+              <div class="combo-list" hidden></div>
+            </div>
           </label>
           <label>
             Bairro
-            <select name="bairro" id="bairro"></select>
+            <div class="combo" data-combo="bairro">
+              <input type="text" class="combo-input" autocomplete="off" placeholder="Todos os bairros" />
+              <input type="hidden" name="bairro" id="bairro" />
+              <div class="combo-list" hidden></div>
+            </div>
           </label>
           <label>
-            Candidato / numero
-            <select name="candidato" id="candidato"></select>
+            Candidato / número
+            <div class="combo" data-combo="candidato">
+              <input type="text" class="combo-input" autocomplete="off" placeholder="Todos os candidatos" />
+              <input type="hidden" name="candidato" id="candidato" />
+              <div class="combo-list" hidden></div>
+            </div>
           </label>
           <label>
             Tipo de voto
-            <select name="tipo" id="tipo"></select>
+            <div class="combo" data-combo="tipo">
+              <input type="text" class="combo-input" autocomplete="off" placeholder="Todos os tipos" />
+              <input type="hidden" name="tipo" id="tipo" />
+              <div class="combo-list" hidden></div>
+            </div>
           </label>
           <label class="wide">
             Busca livre
-            <input name="q" id="q" type="search" placeholder="local, endereco, bairro, candidato..." />
+            <input name="q" id="q" type="search" placeholder="local, endereço, bairro, candidato..." />
           </label>
           <button type="submit">Atualizar</button>
           <button type="button" id="clearFilters" class="secondary">Limpar</button>
@@ -61,7 +81,7 @@
           <div class="section-title">
             <div>
               <p class="eyebrow">Mapa</p>
-              <h2>Locais de votacao</h2>
+              <h2>Locais de votação</h2>
             </div>
             <div class="map-tools">
               <label>
@@ -89,10 +109,10 @@
             </div>
             <select id="group">
               <option value="candidato">Candidato</option>
-              <option value="municipio">Municipio</option>
+              <option value="municipio">Município</option>
               <option value="bairro">Bairro</option>
               <option value="local">Local</option>
-              <option value="secao">Secao</option>
+              <option value="secao">Seção</option>
               <option value="tipo">Tipo de voto</option>
             </select>
           </div>
@@ -108,8 +128,8 @@
           </div>
           <div class="pager">
             <button id="prevPage" class="secondary">Anterior</button>
-            <span id="pageInfo">Pagina 1</span>
-            <button id="nextPage" class="secondary">Proxima</button>
+            <span id="pageInfo">Página 1</span>
+            <button id="nextPage" class="secondary">Próxima</button>
           </div>
         </div>
         <div class="table-wrap">
@@ -117,12 +137,12 @@
             <thead>
               <tr>
                 <th>Cargo</th>
-                <th>Votavel</th>
+                <th>Votável</th>
                 <th>Votos</th>
-                <th>Municipio</th>
+                <th>Município</th>
                 <th>Bairro</th>
                 <th>Local</th>
-                <th>Zona/Secao</th>
+                <th>Zona/Seção</th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
@@ -142,6 +162,6 @@
     </aside>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/app.js"></script>
+    <script src="/app.js?v=3"></script>
   </body>
 </html>

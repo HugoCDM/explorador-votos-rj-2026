@@ -266,7 +266,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if self.db_path.exists():
             return True
         self.send_error_json(
-            "Banco nao encontrado. Rode `python import_data.py` antes de iniciar as consultas.",
+            "Banco não encontrado. Rode `python import_data.py` antes de iniciar as consultas.",
             HTTPStatus.SERVICE_UNAVAILABLE,
         )
         return False
@@ -302,7 +302,7 @@ class AppHandler(BaseHTTPRequestHandler):
             elif path == "/api/location":
                 payload = self.api_location(params)
             else:
-                self.send_error_json("Endpoint nao encontrado", HTTPStatus.NOT_FOUND)
+                self.send_error_json("Endpoint não encontrado", HTTPStatus.NOT_FOUND)
                 return
         except ApiError as exc:
             self.send_error_json(exc.message, exc.status)
@@ -454,7 +454,7 @@ class AppHandler(BaseHTTPRequestHandler):
             "tipo": ("tipo_voto", "tipo_voto"),
         }
         if group not in groups:
-            raise ApiError("Agrupamento invalido", HTTPStatus.BAD_REQUEST)
+            raise ApiError("Agrupamento inválido", HTTPStatus.BAD_REQUEST)
 
         with POOL.acquire() as connection:
             use_aggregate = group != "secao" and can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
@@ -553,7 +553,7 @@ class AppHandler(BaseHTTPRequestHandler):
         local_nome = first(params, "local_nome")
 
         if not municipio or not local_votacao:
-            raise ApiError("Informe municipio e local_votacao", HTTPStatus.BAD_REQUEST)
+            raise ApiError("Informe município e local de votação", HTTPStatus.BAD_REQUEST)
 
         clauses = ["cargo = ?", "municipio = ?", "local_votacao = ?"]
         values: list[object] = [cargo, municipio, local_votacao]
@@ -686,7 +686,10 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         if encoding:
             self.send_header("Content-Encoding", encoding)
-        self.send_header("Cache-Control", "public, max-age=3600")
+        if file_path.name == "index.html":
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", "public, max-age=3600")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
@@ -727,8 +730,8 @@ def warm_up() -> None:
             CACHE.put(cache_key_for(path, params), raw, gz)
             warmed += 1
         except Exception as exc:
-            print(f"warm-up falhou em {path}: {exc!r}", flush=True)
-    print(f"Warm-up concluido: {warmed}/{len(WARMUP_TASKS)} respostas em cache", flush=True)
+            print(f"Warm-up falhou em {path}: {exc!r}", flush=True)
+    print(f"Warm-up concluído: {warmed}/{len(WARMUP_TASKS)} respostas em cache", flush=True)
 
 
 def parse_args() -> argparse.Namespace:

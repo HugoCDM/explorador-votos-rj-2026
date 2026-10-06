@@ -32,7 +32,7 @@ Aplicacao para consultar os votos por cargo, candidato, municipio, bairro, local
    http://127.0.0.1:8000
    ```
 
-## Publicar gratuitamente no Render
+## Publicar gratuitamente no Render (sem Docker Hub, sem cartao)
 
 O banco enxuto (`data/votos_cloud.sqlite`, ~380 MB) contem apenas os cargos de Governador e Presidente. Para gerá-lo a partir do banco completo:
 
@@ -40,32 +40,32 @@ O banco enxuto (`data/votos_cloud.sqlite`, ~380 MB) contem apenas os cargos de G
 python build_cloud_db.py
 ```
 
-A forma mais simples é subir a imagem Docker para o Docker Hub e criar um Web Service no Render (plano Free, sem cartao). O Render injeta a variavel `PORT` e o servidor já a usa.
+O repositorio publicado em <https://github.com/HugoCDM/explorador-votos-rj-2026> já tem tudo pronto:
 
-1. Crie uma conta gratuita no Docker Hub (sem cartao) em <https://hub.docker.com>.
-2. Suba a imagem (precisa do Docker instalado e logado):
+- O banco **nao** fica no git (377 MB): ele é distribuido como **release asset** (`votos_cloud.sqlite` em <https://github.com/HugoCDM/explorador-votos-rj-2026/releases>) e o `Dockerfile` o baixa com `curl` na hora do build. Assim o repositório fica leve e sem custo de LFS.
+- O `Dockerfile` já escuta na porta do Render (`PORT` injetada como env, default `10000`, host `0.0.0.0`).
 
-   ```powershell
-   .\build_and_push.ps1 -DockerUser SEU_USUARIO_DOCKER_HUB
-   ```
+Para publicar:
 
-3. Crie uma conta gratuita no Render (sem cartao) em <https://render.com>.
-4. Em **Dashboard → New → Web Service**, use **Deploy an existing image from a registry** e informe:
+1. Crie uma conta gratuita em <https://render.com> (login pode ser com o GitHub, sem cartao).
+2. Em **Dashboard → New → Web Service** escolha **Public Git Repository** e cole a URL:
 
    ```text
-   docker.io/SEU_USUARIO_DOCKER_HUB/explorador-votos-rj-2026:latest
+   https://github.com/HugoCDM/explorador-votos-rj-2026
    ```
 
-5. Escolha o plano **Free** (dorme apos ~15 min sem visitas e acorda em ~1 min com a primeira visita).
-6. Deploy conclui em ~2 min. O link publico fica em:
+3. **Language/Runtime:** Docker (o Render detecta o Dockerfile).
+4. Escolha o plano **Free** e clique em **Create Web Service**.
+5. O build baixa o banco (~380 MB, ~2–3 min) e sobe. O link publico fica em:
 
    ```text
-   https://SEU_NOME-render.onrender.com
+   https://SEU_NOME.onrender.com
    ```
 
 Observações:
-- No plano Free o Render dorme quando não há visitas (evita consumo) e acorda sob demanda; 750 h de instancia por mes sao suficiente para um servico 24/7 com visitas.
-- Se preferir manter Cloud complementar, ha tambem o banco completo local (`data/votos.sqlite`, ~5 GB) com todos os cargos.
+- No plano Free o Render dorme apos ~15 min sem visitas e acorda em ~1 min na primeira visita (750 h/mes cobrem 24/7).
+- Para atualizar o banco depois, suba um novo release asset com o mesmo nome e redeploy no Render.
+- Fluxo alternativo via imagem Docker Hub: `.\build_and_push.ps1 -DockerUser SEU_USUARIO` e no Render use **Deploy an existing image from a registry** com `docker.io/SEU_USUARIO/explorador-votos-rj-2026:latest`.
 
 ## ENDPOINTS disponíveis
 

@@ -555,6 +555,12 @@ button.secondary {
 
 .table-wrap {
   overflow: auto;
+  min-height: 720px;
+}
+
+.table-loading .table-wrap {
+  cursor: progress;
+  pointer-events: none;
 }
 
 table {

@@ -14,6 +14,7 @@ const state = {
   mapRows: [],
   radiusMeters: 1000,
   refreshId: 0,
+  rowsRefreshId: 0,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -248,6 +249,30 @@ function renderRows(payload) {
       </tr>`
     )
     .join("");
+}
+
+function setRowsLoading(isLoading) {
+  $(".table-panel").classList.toggle("table-loading", isLoading);
+  $("#prevPage").disabled = isLoading || state.page <= 1;
+  const totalPages = Math.max(1, Math.ceil(state.totalRows / state.pageSize));
+  $("#nextPage").disabled = isLoading || state.page >= totalPages;
+}
+
+async function refreshRowsOnly() {
+  const params = paramsFromFilters();
+  const rowsRefreshId = ++state.rowsRefreshId;
+  setRowsLoading(true);
+
+  try {
+    const rows = await api("/api/rows", { ...params, page: state.page, page_size: state.pageSize });
+    if (rowsRefreshId !== state.rowsRefreshId) return;
+    renderRows(rows);
+  } catch (error) {
+    if (rowsRefreshId !== state.rowsRefreshId) return;
+    $("#pageInfo").textContent = error.message;
+  } finally {
+    if (rowsRefreshId === state.rowsRefreshId) setRowsLoading(false);
+  }
 }
 
 function setupMap() {
@@ -582,6 +607,7 @@ async function refreshAll() {
   const params = paramsFromFilters();
   const group = $("#group").value;
   const refreshId = ++state.refreshId;
+  state.rowsRefreshId += 1;
   $("#ranking").innerHTML = '<div class="empty">Carregando ranking...</div>';
   $("#mapStatus").textContent = "Carregando...";
 
@@ -657,11 +683,11 @@ async function init() {
   $("#closeDrawer").addEventListener("click", closeLocationDetail);
   $("#prevPage").addEventListener("click", async () => {
     state.page = Math.max(1, state.page - 1);
-    await refreshAll();
+    await refreshRowsOnly();
   });
   $("#nextPage").addEventListener("click", async () => {
     state.page += 1;
-    await refreshAll();
+    await refreshRowsOnly();
   });
 }
 

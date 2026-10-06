@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import mimetypes
 import os
 import re
 import sqlite3
+import threading
+from contextlib import contextmanager
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +36,40 @@ def connect(db_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+class ConnectionPool:
+    def __init__(self, db_path: Path, size: int = 4) -> None:
+        self.db_path = Path(db_path)
+        self._size = size
+        self._available: list[sqlite3.Connection] = []
+        self._lock = threading.Lock()
+
+    def _create(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.db_path, uri=True, check_same_thread=False)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA mmap_size = 268435456")
+        connection.execute("PRAGMA cache_size = -65536")
+        return connection
+
+    @contextmanager
+    def acquire(self):
+        with self._lock:
+            if self._available:
+                connection = self._available.pop()
+            else:
+                connection = self._create()
+        try:
+            yield connection
+        finally:
+            with self._lock:
+                if len(self._available) < self._size:
+                    self._available.append(connection)
+                else:
+                    connection.close()
+
+
+POOL: ConnectionPool | None = None
 
 
 ALLOWED_CARGOS = ("Governador", "Presidente")
@@ -139,10 +176,16 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         self.serve_static(parsed.path)
 
+    def _accepts_gzip(self) -> bool:
+        return "gzip" in self.headers.get("Accept-Encoding", "")
+
     def send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if self._accepts_gzip() and len(data) > 1024:
+            data = gzip.compress(data)
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -187,7 +230,7 @@ class AppHandler(BaseHTTPRequestHandler):
     def api_options(self, params: dict[str, list[str]]) -> None:
         cargo = first(params, "cargo")
         municipio = first(params, "municipio")
-        with connect(self.db_path) as connection:
+        with POOL.acquire() as connection:
             cargos = [
                 row_to_dict(row)
                 for row in connection.execute(
@@ -229,7 +272,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_json({"cargos": cargos, "municipios": municipios, "bairros": bairros, "candidatos": candidatos, "tipos": tipos})
 
     def api_overview(self, params: dict[str, list[str]]) -> None:
-        with connect(self.db_path) as connection:
+        with POOL.acquire() as connection:
             use_aggregate = can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
             table = "agg_locais" if use_aggregate else "votos"
             where, values = build_where(params, table, fts_available=table_exists(connection, FTS_TABLES[table]))
@@ -325,7 +368,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_error_json("Agrupamento invalido", HTTPStatus.BAD_REQUEST)
             return
 
-        with connect(self.db_path) as connection:
+        with POOL.acquire() as connection:
             use_aggregate = group != "secao" and can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
             select_columns, group_columns = groups[group]
             table = "agg_locais" if use_aggregate else "votos"
@@ -352,7 +395,7 @@ class AppHandler(BaseHTTPRequestHandler):
         page_size = clamp_int(first(params, "page_size", "50"), 50, 10, 200)
         offset = (page - 1) * page_size
 
-        with connect(self.db_path) as connection:
+        with POOL.acquire() as connection:
             use_aggregate = can_use_location_aggregate(params, connection) and table_exists(connection, "agg_locais")
             table = "agg_locais" if use_aggregate else "votos"
             vote_column = "votos" if use_aggregate else "quantidade_votos"
@@ -382,7 +425,7 @@ class AppHandler(BaseHTTPRequestHandler):
         vote_column = "quantidade_votos"
         count_expression = "COUNT(*)"
 
-        with connect(self.db_path) as connection:
+        with POOL.acquire() as connection:
             if not has_section_filter and table_exists(connection, "agg_locais"):
                 table = "agg_locais"
                 vote_column = "votos"
@@ -429,7 +472,7 @@ class AppHandler(BaseHTTPRequestHandler):
             values.append(local_nome)
         where = " WHERE " + " AND ".join(clauses)
 
-        with connect(self.db_path) as connection:
+        with POOL.acquire() as connection:
             info = None
             info_row = connection.execute(
                 f"""
@@ -561,8 +604,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    global POOL
     args = parse_args()
     AppHandler.db_path = args.db
+    POOL = ConnectionPool(args.db)
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     print(f"Servidor iniciado em http://{args.host}:{args.port}")
     print("Use Ctrl+C para encerrar.")

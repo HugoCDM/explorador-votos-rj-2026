@@ -33,7 +33,8 @@ function paramsFromFilters() {
 async function api(path, params = {}) {
   const url = new URL(path, window.location.origin);
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
+    if (value !== undefined && value !== null && value !== "")
+      url.searchParams.set(key, value);
   });
   const response = await fetch(url);
   const payload = await response.json();
@@ -55,7 +56,16 @@ function setupCombo(name) {
   const input = root.querySelector(".combo-input");
   const hidden = root.querySelector('input[type="hidden"]');
   const list = root.querySelector(".combo-list");
-  const combo = { root, input, hidden, list, options: [], filtered: [], active: -1, emptyLabel: "" };
+  const combo = {
+    root,
+    input,
+    hidden,
+    list,
+    options: [],
+    filtered: [],
+    active: -1,
+    emptyLabel: "",
+  };
   combos.set(name, combo);
 
   input.addEventListener("input", () => {
@@ -118,7 +128,8 @@ function openCombo(combo, query) {
   combo.active = -1;
 
   if (!capped.length) {
-    combo.list.innerHTML = '<div class="combo-empty">Nenhuma opção encontrada.</div>';
+    combo.list.innerHTML =
+      '<div class="combo-empty">Nenhuma opção encontrada.</div>';
     combo.list.hidden = false;
     return;
   }
@@ -128,7 +139,7 @@ function openCombo(combo, query) {
       (item, index) => `
         <button type="button" class="combo-option${index === 0 ? " active" : ""}" data-value="${escapeHtml(item.value)}">
           ${escapeHtml(item.label)}
-        </button>`
+        </button>`,
     )
     .join("");
   combo.active = 0;
@@ -141,7 +152,8 @@ function moveComboActive(combo, delta) {
     return;
   }
   if (!combo.filtered.length) return;
-  combo.active = (combo.active + delta + combo.filtered.length) % combo.filtered.length;
+  combo.active =
+    (combo.active + delta + combo.filtered.length) % combo.filtered.length;
   combo.list.querySelectorAll(".combo-option").forEach((element, index) => {
     element.classList.toggle("active", index === combo.active);
     if (index === combo.active) element.scrollIntoView({ block: "nearest" });
@@ -160,7 +172,10 @@ function selectComboValue(combo, value) {
 function fillCombo(name, rows, emptyLabel, getValue, getLabel) {
   const combo = combos.get(name);
   combo.emptyLabel = emptyLabel;
-  combo.options = rows.map((row) => ({ value: String(getValue(row)), label: String(getLabel(row)) }));
+  combo.options = rows.map((row) => ({
+    value: String(getValue(row)),
+    label: String(getLabel(row)),
+  }));
   const current = combo.hidden.value;
   const match = combo.options.find((item) => item.value === current);
   if (!match) combo.hidden.value = "";
@@ -183,15 +198,20 @@ function renderCards(totals) {
     ["Seções", totals.secoes],
   ];
   $("#cards").innerHTML = cards
-    .map(([label, value]) => `<article class="card"><span>${label}</span><strong>${fmt.format(value || 0)}</strong></article>`)
+    .map(
+      ([label, value]) =>
+        `<article class="card"><span>${label}</span><strong>${fmt.format(value || 0)}</strong></article>`,
+    )
     .join("");
 }
 
 function rankTitle(row, group) {
-  if (group === "candidato") return `${row.nome || "Sem nome"} ${row.numero ? `(${row.numero})` : ""}`;
+  if (group === "candidato")
+    return `${row.nome || "Sem nome"} ${row.numero ? `(${row.numero})` : ""}`;
   if (group === "bairro") return row.bairro || "Sem bairro";
   if (group === "local") return row.local_nome || "Sem local";
-  if (group === "secao") return `Zona ${row.zona || "-"} / Seção ${row.secao || "-"}`;
+  if (group === "secao")
+    return `Zona ${row.zona || "-"} / Seção ${row.secao || "-"}`;
   if (group === "tipo") return row.tipo_voto || "Sem tipo";
   return row.municipio || "Sem município";
 }
@@ -209,7 +229,8 @@ function renderRanking(payload) {
   const rows = payload.rows || [];
   const max = Math.max(...rows.map((row) => row.votos || 0), 1);
   if (!rows.length) {
-    $("#ranking").innerHTML = '<div class="empty">Nenhum resultado para os filtros atuais.</div>';
+    $("#ranking").innerHTML =
+      '<div class="empty">Nenhum resultado para os filtros atuais.</div>';
     return;
   }
   $("#ranking").innerHTML = rows
@@ -231,7 +252,8 @@ function renderRanking(payload) {
 function renderRows(payload) {
   state.totalRows = payload.total || 0;
   const totalPages = Math.max(1, Math.ceil(state.totalRows / state.pageSize));
-  $("#pageInfo").textContent = `Página ${state.page} de ${fmt.format(totalPages)} · ${fmt.format(state.totalRows)} linhas`;
+  $("#pageInfo").textContent =
+    `Página ${state.page} de ${fmt.format(totalPages)} · ${fmt.format(state.totalRows)} linhas`;
   $("#prevPage").disabled = state.page <= 1;
   $("#nextPage").disabled = state.page >= totalPages;
 
@@ -246,7 +268,7 @@ function renderRows(payload) {
         <td>${escapeHtml(row.bairro)}</td>
         <td>${escapeHtml(row.local_nome)}<small>${escapeHtml(row.endereco || "")}</small></td>
         <td>${escapeHtml(row.zona || "-")} / ${escapeHtml(row.secao || "-")}</td>
-      </tr>`
+      </tr>`,
     )
     .join("");
 }
@@ -264,7 +286,11 @@ async function refreshRowsOnly() {
   setRowsLoading(true);
 
   try {
-    const rows = await api("/api/rows", { ...params, page: state.page, page_size: state.pageSize });
+    const rows = await api("/api/rows", {
+      ...params,
+      page: state.page,
+      page_size: state.pageSize,
+    });
     if (rowsRefreshId !== state.rowsRefreshId) return;
     renderRows(rows);
   } catch (error) {
@@ -277,7 +303,10 @@ async function refreshRowsOnly() {
 
 function setupMap() {
   if (!window.L || state.map) return;
-  state.map = L.map("map", { scrollWheelZoom: true }).setView([-22.9, -43.2], 8);
+  state.map = L.map("map", { scrollWheelZoom: true }).setView(
+    [-22.9, -43.2],
+    8,
+  );
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: "&copy; OpenStreetMap",
@@ -323,12 +352,16 @@ function renderMap(payload) {
       if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
       openLocationDetail(row, marker);
     });
-    marker.bindTooltip(`${row.local_nome || "Local"}<br>${fmt.format(row.votos || 0)} votos`, { sticky: true });
+    marker.bindTooltip(
+      `${row.local_nome || "Local"}<br>${fmt.format(row.votos || 0)} votos`,
+      { sticky: true },
+    );
     marker.addTo(state.markers);
     bounds.push([row.latitude, row.longitude]);
   });
 
-  if (bounds.length) state.map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 });
+  if (bounds.length)
+    state.map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 });
 }
 
 function markerBaseRadius(row, maxVotes) {
@@ -342,7 +375,9 @@ function distanceMeters(a, b) {
   const dLon = toRad(b.longitude - a.longitude);
   const lat1 = toRad(a.latitude);
   const lat2 = toRad(b.latitude);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * earth * Math.asin(Math.sqrt(h));
 }
 
@@ -362,14 +397,16 @@ function applyRadiusHighlight() {
         dashArray: "8 8",
         weight: 1.5,
         interactive: false,
-      })
+      }),
     );
   }
 
   state.mapRows.forEach((row) => {
     if (!row._marker) return;
     const isSelected = row === state.selectedLocation;
-    const isInside = center ? distanceMeters(center, row) <= state.radiusMeters : false;
+    const isInside = center
+      ? distanceMeters(center, row) <= state.radiusMeters
+      : false;
     if (isInside) {
       inside += 1;
       row.distance = distanceMeters(center, row);
@@ -378,13 +415,28 @@ function applyRadiusHighlight() {
 
     if (isSelected) {
       row._marker.setRadius(10);
-      row._marker.setStyle({ fillColor: "#111", color: "#111", fillOpacity: 0.9, weight: 2 });
+      row._marker.setStyle({
+        fillColor: "#111",
+        color: "#111",
+        fillOpacity: 0.9,
+        weight: 2,
+      });
     } else if (isInside) {
       row._marker.setRadius(Math.max(8, row._baseRadius * 1.8));
-      row._marker.setStyle({ fillColor: "#f28c28", color: "#0b3f82", fillOpacity: 0.78, weight: 2 });
+      row._marker.setStyle({
+        fillColor: "#f28c28",
+        color: "#0b3f82",
+        fillOpacity: 0.78,
+        weight: 2,
+      });
     } else {
       row._marker.setRadius(Math.max(2.2, row._baseRadius * 0.72));
-      row._marker.setStyle({ fillColor: "#1357a6", color: "#1357a6", fillOpacity: 0.28, weight: 1 });
+      row._marker.setStyle({
+        fillColor: "#1357a6",
+        color: "#1357a6",
+        fillOpacity: 0.28,
+        weight: 1,
+      });
     }
   });
   $("#mapStatus").textContent = center
@@ -398,7 +450,12 @@ function resetRadiusHighlight() {
   state.mapRows.forEach((row) => {
     if (!row._marker) return;
     row._marker.setRadius(row._baseRadius || 4);
-    row._marker.setStyle({ fillColor: "#1357a6", color: "#1357a6", fillOpacity: 0.48, weight: 1.5 });
+    row._marker.setStyle({
+      fillColor: "#1357a6",
+      color: "#1357a6",
+      fillOpacity: 0.48,
+      weight: 1.5,
+    });
   });
   $("#mapStatus").textContent = `${fmt.format(state.mapRows.length)} pontos`;
 }
@@ -428,7 +485,8 @@ async function openLocationDetail(row, marker) {
   if (state.drawerView === "radius") state.radiusRows = insideRows;
   state.drawerView = "detail";
   openDrawer();
-  $("#locationDetail").innerHTML = '<div class="empty">Carregando local...</div>';
+  $("#locationDetail").innerHTML =
+    '<div class="empty">Carregando local...</div>';
 
   try {
     const payload = await api("/api/location", {
@@ -440,7 +498,8 @@ async function openLocationDetail(row, marker) {
     });
     renderLocationDetail(payload);
   } catch (error) {
-    $("#locationDetail").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+    $("#locationDetail").innerHTML =
+      `<div class="error">${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -496,11 +555,16 @@ function renderLocationDetail(payload) {
   const opponent = payload.main_opponent;
   const totals = payload.totals || {};
   const margin = totals.margem || 0;
-  const marginText = margin >= 0 ? `${fmt.format(margin)} votos de vantagem` : `${fmt.format(Math.abs(margin))} votos atrás`;
+  const marginText =
+    margin >= 0
+      ? `${fmt.format(margin)} votos de vantagem`
+      : `${fmt.format(Math.abs(margin))} votos atrás`;
   const opponentText = opponent
     ? `${escapeHtml(opponent.nome)} (${opponent.numero}) tem ${fmt.format(opponent.votos || 0)} votos, ${fmt.format(Math.abs(margin))} ${margin >= 0 ? "a menos" : "a mais"}.`
     : "Não há adversário nominal neste local.";
-  const share = Number(supported.share || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const share = Number(supported.share || 0).toLocaleString("pt-BR", {
+    maximumFractionDigits: 1,
+  });
   const progress = Math.max(1, Math.min(100, supported.share || 0));
 
   const backTarget = state.radiusRows.length
@@ -518,13 +582,13 @@ function renderLocationDetail(payload) {
     <p class="summary-line">${fmt.format(totals.nulos || 0)} nulos, ${fmt.format(totals.brancos || 0)} em branco e ${fmt.format(totals.outros_candidatos || 0)} em outros candidatos fora do principal adversário.</p>
 
     <div class="share-block">
-      <strong>Paes 55 neste local teve <em>${share}%</em> <span>(${fmt.format(supported.votos || 0)} votos)</span></strong>
+      <strong>Eduardo Paes neste local teve <em>${share}%</em> <span>(${fmt.format(supported.votos || 0)} votos)</span></strong>
       <div class="share-track"><i style="width:${progress}%"></i></div>
       <small>votos válidos e não válidos registrados no CSV para governador.</small>
     </div>
 
     <div class="callout">
-      <p>No primeiro turno, o Paes ficou com <strong>${marginText}</strong> aqui. ${opponentText}</p>
+      <p>No primeiro turno, Eduardo Paes ficou com <strong>${marginText}</strong> aqui. ${opponentText}</p>
     </div>
 
     <p class="drawer-note">Local com ${fmt.format(totals.secoes || 0)} seções agregadas no arquivo.</p>
@@ -536,7 +600,10 @@ function renderLocationDetail(payload) {
 
     <h3>Resultado por candidato</h3>
     <div class="mini-results">
-      ${(payload.candidates || []).slice(0, 12).map((candidate) => renderCandidateLine(candidate, totals.votos || 1)).join("")}
+      ${(payload.candidates || [])
+        .slice(0, 12)
+        .map((candidate) => renderCandidateLine(candidate, totals.votos || 1))
+        .join("")}
     </div>
   `;
   $("#backToMap").addEventListener("click", () => {
@@ -555,7 +622,7 @@ function renderConversation(item) {
   return `
     <details class="conversation-card">
       <summary><strong>${escapeHtml(item.title)}</strong> <span>(${fmt.format(item.votes || 0)})</span></summary>
-      <p>Grupo priorizado para abordagem local. Cada voto convertido soma para Paes 55 e reduz o espaço dos adversários.</p>
+      <p>Grupo priorizado para abordagem local. Cada voto convertido soma para Eduardo Paes e reduz o espaço dos adversários.</p>
     </details>
   `;
 }
@@ -563,7 +630,10 @@ function renderConversation(item) {
 function renderCandidateLine(candidate, total) {
   const votes = candidate.votos || 0;
   const pct = Math.max(1, (votes / total) * 100);
-  const label = candidate.tipo_voto === "nominal" ? `${candidate.nome || "Sem nome"} ${candidate.numero ? `(${candidate.numero})` : ""}` : candidate.nome;
+  const label =
+    candidate.tipo_voto === "nominal"
+      ? `${candidate.nome || "Sem nome"} ${candidate.numero ? `(${candidate.numero})` : ""}`
+      : candidate.nome;
   return `
     <div class="candidate-line">
       <div><strong>${escapeHtml(label)}</strong><span>${escapeHtml([candidate.partido, candidate.tipo_voto].filter(Boolean).join(" · "))}</span></div>
@@ -584,22 +654,52 @@ function escapeHtml(value) {
 
 async function loadOptions() {
   const params = paramsFromFilters();
-  const payload = await api("/api/options", { cargo: params.cargo, municipio: params.municipio });
-  fillCombo("cargo", payload.cargos, "Todos os cargos", (row) => row.cargo, (row) => `${row.cargo} · ${fmt.format(row.votos)} votos`);
+  const payload = await api("/api/options", {
+    cargo: params.cargo,
+    municipio: params.municipio,
+  });
+  fillCombo(
+    "cargo",
+    payload.cargos,
+    "Todos os cargos",
+    (row) => row.cargo,
+    (row) => `${row.cargo} · ${fmt.format(row.votos)} votos`,
+  );
   if (!state.optionsInitialized && !params.cargo) {
-    const defaultCargo = payload.cargos.find((row) => row.cargo === "Governador") || payload.cargos[0];
+    const defaultCargo =
+      payload.cargos.find((row) => row.cargo === "Governador") ||
+      payload.cargos[0];
     if (defaultCargo) setComboValue("cargo", defaultCargo.cargo);
   }
-  fillCombo("municipio", payload.municipios, "Todos os municípios", (row) => row, (row) => row);
-  fillCombo("bairro", payload.bairros, "Todos os bairros", (row) => row, (row) => row);
+  fillCombo(
+    "municipio",
+    payload.municipios,
+    "Todos os municípios",
+    (row) => row,
+    (row) => row,
+  );
+  fillCombo(
+    "bairro",
+    payload.bairros,
+    "Todos os bairros",
+    (row) => row,
+    (row) => row,
+  );
   fillCombo(
     "candidato",
     payload.candidatos,
     "Todos os candidatos",
     (row) => row.numero,
-    (row) => `${row.nome || "Sem nome"} (${row.numero})${row.partido ? ` · ${row.partido}` : ""}`
+    (row) =>
+      `${row.nome || "Sem nome"} (${row.numero})${row.partido ? ` · ${row.partido}` : ""}`,
   );
-  fillCombo("tipo", payload.tipos, "Todos os tipos", (row) => row, (row) => row);
+  fillCombo(
+    "tipo",
+    payload.tipos,
+    "Todos os tipos",
+    (row) => row,
+    (row) => row,
+  );
   state.optionsInitialized = true;
 }
 
@@ -616,7 +716,11 @@ async function refreshAll() {
     const [overview, ranking, rows] = await Promise.all([
       api("/api/overview", params),
       api("/api/summary", { ...params, group, limit: 25 }),
-      api("/api/rows", { ...params, page: state.page, page_size: state.pageSize }),
+      api("/api/rows", {
+        ...params,
+        page: state.page,
+        page_size: state.pageSize,
+      }),
     ]);
     if (refreshId !== state.refreshId) return;
     renderCards(overview.totals);
@@ -628,7 +732,8 @@ async function refreshAll() {
     renderMap(map);
   } catch (error) {
     if (refreshId !== state.refreshId) return;
-    $("#ranking").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+    $("#ranking").innerHTML =
+      `<div class="error">${escapeHtml(error.message)}</div>`;
     $("#cards").innerHTML = "";
     $("#rows").innerHTML = "";
     $("#mapStatus").textContent = "Erro";
